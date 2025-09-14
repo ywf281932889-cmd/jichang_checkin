@@ -1,62 +1,67 @@
-import requests, json, re, os
-# 机场的地址
-url = os.environ.get('URL')
-# 配置用户名（一般是邮箱）
+import cloudscraper, json, os
 
+# 环境变量配置
+url = os.environ.get('URL')
 config = os.environ.get('CONFIG')
-# server酱
 SCKEY = os.environ.get('SCKEY')
 
-login_url = '{}/auth/login'.format(url)
-check_url = '{}/user/checkin'.format(url)
+login_url = f'{url}/auth/login'
+check_url = f'{url}/user/checkin'
 
-def sign(order,user,pwd):
-        session = requests.session()
-        global url,SEKEY
-        header = {
+def sign(order, user, pwd):
+    scraper = cloudscraper.create_scraper()
+    headers = {
         'origin': url,
-        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36'
-        }
-        data = {
+        'user-agent': scraper.headers['User-Agent']
+    }
+    data = {
         'email': user,
-        'passwd': pwd
-        }
-        try:
-                print(f'===账号{order}进行登录...===')
-                print(f'账号：{user}')
-                res = session.post(url=login_url,headers=header,data=data).text
-                print(res)
-                response = json.loads(res)
-                print(response['msg'])
-                # 进行签到
-                res2 = session.post(url=check_url,headers=header).text
-                print(res2)
-                result = json.loads(res2)
-                print(result['msg'])
-                content = result['msg']
-                # 进行推送
-                if SCKEY != '':
-                        push_url = 'https://sctapi.ftqq.com/{}.send?title=机场签到&desp={}'.format(SCKEY, content)
-                        requests.post(url=push_url)
-                        print('推送成功')
-        except Exception as ex:
-                content = '签到失败'
-                print(content)
-                print("出现如下异常%s"%ex)
-                if SCKEY != '':
-                        push_url = 'https://sctapi.ftqq.com/{}.send?title=机场签到&desp={}'.format(SCKEY, content)
-                        requests.post(url=push_url)
-                        print('推送成功')
-        print('===账号{order}签到结束===\n'.format(order=order))
+        'passwd': pwd,
+        'code': ''
+    }
+
+    try:
+        print(f'===账号{order}进行登录...===')
+        print(f'账号：{user}')
+        res = scraper.post(login_url, headers=headers, data=data).text
+
+        # 判断是否被 Cloudflare 拦截
+        if '<title>Just a moment...</title>' in res:
+            raise Exception('Cloudflare 拦截，登录失败')
+
+        response = json.loads(res)
+        print(response['msg'])
+
+        # 进行签到
+        res2 = scraper.post(check_url, headers=headers).text
+        result = json.loads(res2)
+        print(result['msg'])
+        content = result['msg']
+
+        # 推送结果
+        if SCKEY:
+            push_url = f'https://sctapi.ftqq.com/{SCKEY}.send?title=机场签到&desp={content}'
+            cloudscraper.create_scraper().post(push_url)
+            print('推送成功')
+
+    except Exception as ex:
+        content = '签到失败'
+        print(content)
+        print(f'出现如下异常: {ex}')
+        if SCKEY:
+            push_url = f'https://sctapi.ftqq.com/{SCKEY}.send?title=机场签到&desp={content}'
+            cloudscraper.create_scraper().post(push_url)
+            print('推送成功')
+
+    print(f'===账号{order}签到结束===\n')
+
 if __name__ == '__main__':
-        configs = config.splitlines()
-        if len(configs) %2 != 0 or len(configs) == 0:
-                print('配置文件格式错误')
-                exit()
-        user_quantity = len(configs)
-        user_quantity = user_quantity // 2
-        for i in range(user_quantity):
-                user = configs[i*2]
-                pwd = configs[i*2+1]
-                sign(i,user,pwd)
-        
+    configs = config.splitlines()
+    if len(configs) % 2 != 0 or len(configs) == 0:
+        print('配置文件格式错误')
+        exit()
+
+    for i in range(len(configs) // 2):
+        user = configs[i * 2]
+        pwd = configs[i * 2 + 1]
+        sign(i, user, pwd)
